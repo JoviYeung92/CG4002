@@ -1,0 +1,222 @@
+/*
+   Final Version
+   Power saving functionality included
+*/
+#define PRR_SPI_MASK 0b00000100
+#define ADCSRA_ADC_MASK 0b10000000
+#define PRR_ADC_MASK 0b00000001
+
+#include <Wire.h>
+const int MPU = 0x68;
+float AccX, AccY, AccZ, GyroX, GyroY, GyroZ;  // Raw values
+float accAngleX, accAngleY, gyroAngleX, gyroAngleY; // Preprocessing
+float roll, pitch, yaw;
+float AccErrorX, AccErrorY, GyroErrorX, GyroErrorY, GyroErrorZ; // Setup process
+float elapsedTime, currentTime, previousTime; // To obtain degree from gyroscope
+float positionTime;  // Detect when position detection ends
+float positionChangeWaitingTime = 4000; // 4s to detect position change
+int c = 0, right=0, left=0, still=0;
+float positionDetectionStart;
+float prevAccZ=0.0;
+bool positionStart = false;
+
+void setup() {
+  setupPowerSaving();
+  Serial.begin(38400);
+  Wire.begin();                     // Initialize communication
+  
+  Wire.beginTransmission(MPU);      // Start communication with MPU6050, 0x68
+  Wire.write(0x6B);                 // Talk to the register 6B
+  Wire.write(0);                    // Turn on MPU6050
+  Wire.endTransmission();           // End the transmission
+  
+  Wire.beginTransmission(MPU);      // Config Accelerometer Sensitivity
+  Wire.write(0x1C);                 // ACCEL_CONFIG register
+  Wire.write(0x08);                 // +-4g
+  Wire.endTransmission();
+  
+  Wire.beginTransmission(MPU);      // Configure Gyro Sensitivity
+  Wire.write(0x1B);                 // GYRO_CONFIG register
+  Wire.write(0x00);                 // 250deg/s full scale, more resolution
+  Wire.endTransmission();
+  
+  delay(20);
+  // Instead of using a constant value to offset error, we will calculate it everytime the system is connected,
+  // this will give more accurate readings and remove noise from the sensor.
+  calculate_IMU_error(MPU);
+}
+void loop() {
+  runMPU(MPU);
+}
+
+void runMPU(const int MPU){
+  // === Read acceleromter data === //
+  Wire.beginTransmission(MPU);
+  Wire.write(0x3B);               // Start from reg 0x3B, ACCEL_XOUT_H
+  Wire.endTransmission();
+  Wire.requestFrom(MPU, 6, true); // Read 6 registers from MPU, each axis value is stored in 2 registers. true will send a stop message after the request, releasing the bus
+  
+  //This is where the raw values are stored. For a range of +-4g, we need to divide the raw values by 8192 (datasheet)
+  AccX = (Wire.read() << 8 | Wire.read()) / 8192.0; //ACCEL_XOUT_H, ACCEL_XOUT_L, 1g given as 8192, thus need to divide by its sensitivity, 8192
+  AccY = (Wire.read() << 8 | Wire.read()) / 8192.0; //ACCEL_YOUT_H, ACCEL_YOUT_L
+  AccZ = (Wire.read() << 8 | Wire.read()) / 8192.0; //ACCEL_ZOUT_H, ACCEL_ZOUT_L
+ 
+  // Calculate Roll and Pitch using linear acceleration XYZ, this is used as when it's not moving, it will experience acceleration due to gravity.
+  // Different amount of acceleration along the 3 axes will thus give the roll and pitch value.
+  accAngleX = (atan(AccY / sqrt(pow(AccX, 2) + pow(AccZ, 2))) * 180 / PI) - AccErrorX;
+  accAngleY = (atan(-1 * AccX / sqrt(pow(AccY, 2) + pow(AccZ, 2))) * 180 / PI) - AccErrorY;
+  
+  // === Read gyroscope data === //
+  // Gyro data is in deg/s thus need take time here so tat we can multiply data to obtain deg
+  previousTime = currentTime;        // Previous time is stored before the actual time read
+  currentTime = millis();            // Current time actual time read
+  elapsedTime = (currentTime - previousTime) / 1000; // Divide by 1000 to get seconds
+  
+  Wire.beginTransmission(MPU);
+  Wire.write(0x43);                // First address of the gyro data, start from 0x43
+  Wire.endTransmission();
+  Wire.requestFrom(MPU, 6, true); // Read 6 registers total, each axis value is stored in 2 registers
+  
+  // For a range of +-250deg/s, we need to divde the raw values by 131 (datasheet)
+  GyroX = (Wire.read() << 8 | Wire.read()) / 131.0; //GYRO_XOUT_H, GYRO_XOUT_L, 1 deg/s given as 131, thus need to divide by its sensitivity, 131
+  GyroY = (Wire.read() << 8 | Wire.read()) / 131.0; //GYRO_YOUT_H, GYRO_YOUT_L
+  GyroZ = (Wire.read() << 8 | Wire.read()) / 131.0; //GYRO_ZOUT_H, GYRO_ZOUT_L
+ 
+  // Correct the outputs with the calculated error values
+  GyroX = GyroX - GyroErrorX;
+  GyroY = GyroY - GyroErrorY;
+  GyroZ = GyroZ - GyroErrorZ;
+  
+  // Raw values are in degrees per seconds, multiply by seconds to get the angle in degrees
+  gyroAngleX = GyroX * elapsedTime; // deg/s * s = deg
+  gyroAngleY = GyroY * elapsedTime;
+  yaw =  yaw + GyroZ * elapsedTime;
+    
+  // Complementary filter - combine acceleromter and gyro angle values to remove noise
+  roll = 0.96 * gyroAngleX + 0.04 * accAngleX;
+  pitch = 0.96 * gyroAngleY + 0.04 * accAngleY;
+
+  // If there is movement
+  if ( (AccX >= 1.02 || AccX <= 1.00) && (AccY >= 0.23 || AccY <= -0.15) && !positionStart)
+    positionDetectionStart = millis();
+    
+  if(millis() > positionDetectionStart+2900 && !positionStart){
+    positionStart = true;
+    prevAccZ = AccZ;  // Store previous value
+    positionTime = millis() + positionChangeWaitingTime; // Start time for position detection plus 4s later
+    Serial.println("Position detection start");
+  }
+  // If no movement for approximately 3s, detect position change
+  if (millis() > positionDetectionStart+3000 && positionStart) {
+    if (AccZ > prevAccZ && left == 0){ // Must increase 5 times consecutively, if decrease, reset variable left and right
+      right++;
+    }
+    else if (AccZ < prevAccZ && right == 0)
+      left++;
+    else {
+      right = 0;
+      left = 0;
+    }
+    prevAccZ = AccZ;  // Update previous Z value to current value
+    
+    // If 7 samples all increase/decrease, print position n exit while loop
+    if(left >= 7) {
+      Serial.println("1");
+      Serial.println("Position detection END");
+      positionDetectionStart = millis();
+      positionStart = false;
+    }
+    else if (right >= 7) {
+      Serial.println("2");
+      Serial.println("Position detection END");
+      positionDetectionStart = millis();
+      positionStart = false;
+    }
+    if(millis() > positionTime){
+      Serial.println("0");  //Still
+      Serial.println("Position detection END");
+      positionDetectionStart = millis();
+      positionStart = false;
+    }
+  }
+    
+  // Print the values on the serial monitor
+  Serial.print(roll); Serial.print(" ");            // Unit: Degree
+  Serial.print(pitch); Serial.print(" ");           // Unit: Degree
+  Serial.print(yaw); Serial.print(" ");             // Unit: Degree
+  Serial.print(AccX); Serial.print(" ");            // Unit: g
+  Serial.print(AccY); Serial.print(" ");            // Unit: g
+  Serial.print(AccZ); Serial.print(" ");            // Unit: g
+  Serial.println(currentTime);                      // Unit: ms
+}
+
+// Calculate accelerometer and gyro data error, place IMU flat to get the proper values
+void calculate_IMU_error(int MPU) {
+  // Read accelerometer values 300 times
+  while (c < 300) {
+    // Take accelerometer reading
+    Wire.beginTransmission(MPU);
+    Wire.write(0x3B);               // First address of the accelerometer data
+    Wire.endTransmission(false);
+    Wire.requestFrom(MPU, 6, true); // Read 6 registers total, each axis value is stored in 2 registers
+    AccX = (Wire.read() << 8 | Wire.read()) / 8192.0 ; //+-4g, 8192 LSB/g (sensitivity)
+    AccY = (Wire.read() << 8 | Wire.read()) / 8192.0 ;
+    AccZ = (Wire.read() << 8 | Wire.read()) / 8192.0 ;
+    
+    // Sum all acc error readings
+    AccErrorX = AccErrorX + ((atan((AccY) / sqrt(pow((AccX), 2) + pow((AccZ), 2))) * 180 / PI));
+    AccErrorY = AccErrorY + ((atan(-1 * (AccX) / sqrt(pow((AccY), 2) + pow((AccZ), 2))) * 180 / PI));
+    c++;
+  }
+  //Divide the sum by 300 to get the error value
+  AccErrorX = AccErrorX / 300;
+  AccErrorY = AccErrorY / 300;
+  c = 0;
+  
+  // Read gyro values 300 times
+  while (c < 300) {
+    // Take gyro reading
+    Wire.beginTransmission(MPU);
+    Wire.write(0x43); // First address of the gyroscope data
+    Wire.endTransmission(false);
+    Wire.requestFrom(MPU, 6, true); // Read 6 registers total, each axis value is stored in 2 registers
+    GyroX = (Wire.read() << 8 | Wire.read()) / 131.0; // +-250degrees/s
+    GyroY = (Wire.read() << 8 | Wire.read()) / 131.0;
+    GyroZ = (Wire.read() << 8 | Wire.read()) / 131.0;
+    
+    // Sum all readings
+    GyroErrorX = GyroErrorX + GyroX;
+    GyroErrorY = GyroErrorY + GyroY;
+    GyroErrorZ = GyroErrorZ + GyroZ;
+    c++;
+  }  
+  
+  //Divide the sum by 300 to get the error value
+  GyroErrorX = GyroErrorX / 300;
+  GyroErrorY = GyroErrorY / 300;
+  GyroErrorZ = GyroErrorZ / 300;
+  
+  // Print the error values on the Serial Monitor (debugging use)
+//  Serial.print("AccErrorX: "); Serial.println(AccErrorX);
+//  Serial.print("AccErrorY: "); Serial.println(AccErrorY);
+//  Serial.print("GyroErrorX: "); Serial.println(GyroErrorX);
+//  Serial.print("GyroErrorY: "); Serial.println(GyroErrorY);
+//  Serial.print("GyroErrorZ: "); Serial.println(GyroErrorZ);
+}
+
+void WDT_off(void)
+{
+  cli();  // Disable global interrupt
+  MCUSR &= ~(1<<WDRF);  // Clear WDRF in MCUSR
+  WDTCSR |= (1<<WDCE) | (1<<WDE);
+  WDTCSR = 0x00;  // Turn off WDT
+  sei();
+}
+
+void setupPowerSaving()
+{
+  WDT_off();                  // Turn off the Watchdog Timer
+  PRR |= PRR_SPI_MASK;        // Shut down SPI
+  ADCSRA |= ADCSRA_ADC_MASK;  // Disable ADC
+  PRR |= PRR_ADC_MASK;        // Shut down ADC
+}

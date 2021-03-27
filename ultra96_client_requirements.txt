@@ -1,0 +1,7 @@
+pycryptodome==3.9.9
+mysql-connector==2.2.9
+sshtunnel==0.2.2
+pymysql==0.10.1
+paramiko==2.7.2
+pandas==1.1.4
+pytz==2020.4

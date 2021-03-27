@@ -1,0 +1,4 @@
+mysql-connector==2.2.9
+pycryptodome==3.9.9
+pytunneling==0.0.2
+pytz==2020.4

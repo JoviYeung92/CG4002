@@ -1,0 +1,12 @@
+pytunneling==0.0.2
+ntplib==0.3.4
+xlsxwriter==1.3.7
+pycryptodome==3.9.9
+crc8==0.1.0
+bluepy==1.3.0
+pytz==2020.4
+mysql-connector==2.2.9
+sshtunnel==0.2.2
+pymysql==0.10.1
+paramiko==2.7.2
+pandas==1.1.4

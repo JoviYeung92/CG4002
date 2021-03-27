@@ -1,0 +1,9 @@
+/dashboard/dancedance/node_modules/
+/dashboard/api/node_modules/
+/dashboard/api/dbconfig/index.js
+*/__pycache__/
+*.pyc
+*.bat
+.vs/
+.vscode/
+.ipynb_checkpoints/

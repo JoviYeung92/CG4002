@@ -1,0 +1,86 @@
+# updating python to python 3.7 for time_ns
+$ sudo apt-get update
+$ sudo apt-get install python3.7
+# setting 3.7 to be the version to be  with highest priority 1
+$ sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.7 1
+
+Instructions for linux:
+
+# required modules for python
+
+$ sudo apt-get install python3-pip
+$ pip3 install numpy
+$ sudo apt-get install python3-tk
+$ pip3 install pandas
+$ pip3 install pycryptodome
+$ pip3 install ntplib
+$ pip3 install pytunneling
+$ pip3 install crc8
+$ sudo apt-get install python3-pip libglib2.0-dev
+$ sudo pip3 install bluepy
+$ pip3 install xlsxwriter
+
+# On Xilinx
+$ pip3 install mysql-connector
+$ pip3 install sshtunnel
+$ pip3 install PyMySQL
+
+Example of clearing cache when installing:
+$ sudo pip3 install --no-cache-dir pytunneling
+$ sudo pip3 install --no-cache-dir pycryptodome
+##   ^if above doesn't work, use below
+$ sudo -H pip3 install --no-cache-dir pycryptodome
+
+processes to mimic the blunos
+# create separate processes for each bluno
+
+Instructions to copy to xilinx:
+1. copy into sunfire
+$ scp ultra96_client.py sdsamuel@sunfire.comp.nus.edu.sg:
+# enter sunfire passsword
+2. copy into xilinx
+$ scp ultra96_client.py xilinx@137.132.86.241:.
+# enter xilinx password
+
+Instructions to set up ssh_pkey in local:
+1. open terminal at root directory
+2. $ cd ~/.ssh
+3. ls id_*
+4. if "id_rsa" does not exist, proceed
+5. ssh -keygen -t rsa -C "sdsamuel@sunfire.comp.nus.edu.sg"
+6. enter password
+7. key fingerprint will be generated
+
+[DEPRECATED]
+### Instructions to run scripts (from Samuel - Comms External)
+On Laptop: python3 dancer_client.py
+On Ultra96: python3 ultra96_client 116.14.130.238 8899
+Test Evaluation Server: python3 eval_server.py 10.0.2.15 8899 18
+Test Evaluation Server on rpi: python3 eval_server.py 127.0.0.1 8899 18
+
+[NEW]
+### Instructions to run scripts (from Samuel - Comms External)
+# Hosted eval server on home router
+1. In rpi VNC: python3 eval_server.py 192.168.1.88 47306 18
+2. On ultra96: sudo python3 ultra96_client3.py 116.14.130.238 47306
+3. Just run dancer client as usual.
+
+# ensure you are using python3
+$ py -m venv env
+$ .\env\Scripts\activate
+# after usage
+$ deactivate
+
+
+Steps:
+
+0. go into xilinx
+    $ cd Samuel
+1. get ip address and port number of eval server from prof
+2. run the ultra96 client:
+    $ python3 ultra96_client.py <ip address>  <port number>
+3. run the sql script: 
+    $ python3 laptop.py
+4. run the dancer client:
+    $ python3 dancer_client.py
+

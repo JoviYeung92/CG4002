@@ -1,0 +1,4 @@
+1. SSH into xilinx@pynq using 'ssh -l xilinx 137.132.86.241'
+2. Launch jupyter notebook on this shell using 'jupyter notebook --no-browser --port=1234'
+3. Open another sunfire shell and tunnel into pc using 'ssh xilinx@137.132.86.241 -NL 1234:localhost:1234'
+4. Now from your PC, run the command 'ssh -N -f -L 1234:localhost:1234 xxxx@sunfire.comp.nus.edu'
